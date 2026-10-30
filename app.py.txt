@@ -1,0 +1,79 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+# 1. Konfigurasi Halaman
+st.set_page_config(page_title="Dashboard Pergerakan Hibrid", layout="wide", initial_sidebar_state="expanded")
+st.title("📊 Dashboard Pergerakan & Kehadiran Hibrid (WFH/WFO)")
+st.markdown("Pantau kehadiran pejabat, bekerja dari rumah, mesyuarat, kursus dan cuti secara masa nyata.")
+
+# 2. Muat Turun Data
+@st.cache_data
+def load_data():
+    # Baca fail data bersih yang telah kita jana sebelum ini
+    df = pd.read_excel('Data_Dashboard_HBH_Bersih.xlsx')
+    return df
+
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"Sila pastikan fail 'Data_Dashboard_HBH_Bersih.xlsx' berada di folder yang sama. Ralat: {e}")
+    st.stop()
+
+# 3. Penapis (Sidebar)
+st.sidebar.header("Penapis Data")
+pilihan_bulan = st.sidebar.multiselect("Pilih Bulan:", options=df['Bulan'].unique(), default=df['Bulan'].unique())
+pilihan_pegawai = st.sidebar.multiselect("Pilih Pegawai:", options=df['Nama Pegawai'].unique(), default=df['Nama Pegawai'].unique())
+
+# Tapis data mengikut pilihan
+df_tapis = df[(df['Bulan'].isin(pilihan_bulan)) & (df['Nama Pegawai'].isin(pilihan_pegawai))]
+
+# 4. Kiraan Rumusan (Scorecards)
+st.subheader("Rumusan Keseluruhan")
+jum_wfo = len(df_tapis[df_tapis['Status WFH/WFO'].str.contains('WFO', na=False)])
+jum_wfh = len(df_tapis[df_tapis['Status WFH/WFO'].str.contains('WFH', na=False)])
+jum_kursus = len(df_tapis[df_tapis['Aktiviti Tambahan'].str.contains('Kursus', na=False)])
+jum_cuti = len(df_tapis[df_tapis['Aktiviti Tambahan'].str.contains('Cuti', na=False) & ~df_tapis['Aktiviti Tambahan'].str.contains('Hujung', na=False)])
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("WFO (Pejabat)", f"{jum_wfo} Hari")
+col2.metric("WFH (Rumah)", f"{jum_wfh} Hari")
+col3.metric("Kursus / Bengkel", f"{jum_kursus} Hari")
+col4.metric("Cuti (Rehat/Sakit)", f"{jum_cuti} Hari")
+st.markdown("---")
+
+# 5. Visualisasi Carta
+col_carta1, col_carta2 = st.columns(2)
+
+with col_carta1:
+    st.subheader("Perbandingan WFO vs WFH")
+    # Tapis hanya hari bekerja
+    df_kerja = df_tapis[df_tapis['Status WFH/WFO'].isin(['WFO (Pejabat)', 'WFH (Rumah)'])]
+    if not df_kerja.empty:
+        fig_bar = px.histogram(df_kerja, x="Nama Pegawai", color="Status WFH/WFO", barmode="group", 
+                               color_discrete_map={"WFO (Pejabat)": "#2CA02C", "WFH (Rumah)": "#1F77B4"})
+        st.plotly_chart(fig_bar, use_container_width=True)
+    else:
+        st.info("Tiada data kerja untuk dipaparkan.")
+
+with col_carta2:
+    st.subheader("Pecahan Aktiviti Tambahan")
+    df_aktiviti = df_tapis[df_tapis['Aktiviti Tambahan'] != '-']
+    if not df_aktiviti.empty:
+        fig_pie = px.pie(df_aktiviti, names="Aktiviti Tambahan", hole=0.4)
+        st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+        st.info("Tiada aktiviti tambahan direkodkan.")
+
+# 6. Senarai Semak Status Bertindih (Crucial Feature)
+st.subheader("⚠️ Amaran: Pertindihan WFH & Kursus/Mesyuarat")
+df_bertindih = df_tapis[(df_tapis['Status WFH/WFO'] == 'WFH (Rumah)') & (df_tapis['Aktiviti Tambahan'] != '-')]
+if not df_bertindih.empty:
+    st.warning("Senarai pegawai di bawah dijadualkan WFH tetapi mempunyai komitmen luar (Kursus/Cuti):")
+    st.dataframe(df_bertindih[['Tarikh', 'Nama Pegawai', 'Status WFH/WFO', 'Aktiviti Tambahan']], use_container_width=True)
+else:
+    st.success("Tiada pertindihan jadual dikesan buat masa ini.")
+
+# 7. Paparan Data Terperinci
+st.subheader("Jadual Pergerakan Terperinci")
+st.dataframe(df_tapis[['Tarikh', 'Nama Pegawai', 'Status WFH/WFO', 'Aktiviti Tambahan']], use_container_width=True)
